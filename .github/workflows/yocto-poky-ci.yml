@@ -24,7 +24,7 @@ jobs:
             gawk wget git diffstat unzip texinfo gcc build-essential \
             chrpath socat cpio python3 python3-pip xz-utils debianutils \
             iputils-ping python3-git python3-jinja2 zstd liblz4-tool \
-            file locales ca-certificates lz4 rsync rsync
+            file locales ca-certificates lz4 rsync
 
       # 2. Checkout your code
       - name: Checkout Code Repository
@@ -43,12 +43,14 @@ jobs:
 
       # 4. Clone Poky and configure
       - name: Setup Yocto Poky Environment
+        shell: bash
         run: |
           mkdir -p yocto-setup && cd yocto-setup
           git clone -b scarthgap https://git.yoctoproject.org/git/poky
 
       # 5. Build the Minimal Image (Using FORCE_UNSAFE_TO_ROOT to build safely as Root)
       - name: Compile OS Image via BitBake
+        shell: bash
         run: |
           cd yocto-setup/poky
           source oe-init-build-env
