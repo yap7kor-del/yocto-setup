@@ -35,51 +35,66 @@ jobs:
         uses: actions/checkout@v4
 
       # 3. Cache Management (Speeds up subsequent runs)
-      - name: Restore/Save Yocto Downloads & SState Cache
+      - name: Cache Yocto Downloads
         uses: actions/cache@v4
         with:
-          path: |
-            yocto-setup/poky/build/downloads
-            yocto-setup/poky/build/sstate-cache
-          key: yocto-cache-${{ runner.os }}-${{ github.sha }}
+          path: yocto-setup/poky/build/downloads
+          key: yocto-downloads-${{ runner.os }}-${{ hashFiles('**/conf/local.conf') }}
           restore-keys: |
-            yocto-cache-${{ runner.os }}-
+            yocto-downloads-${{ runner.os }}-
+
+      - name: Cache Yocto SState
+        uses: actions/cache@v4
+        with:
+          path: yocto-setup/poky/build/sstate-cache
+          key: yocto-sstate-${{ runner.os }}-${{ github.ref_name }}-${{ github.sha }}
+          restore-keys: |
+            yocto-sstate-${{ runner.os }}-${{ github.ref_name }}-
+            yocto-sstate-${{ runner.os }}-main-
+            yocto-sstate-${{ runner.os }}-
 
       # 4. Clone Poky and configure
       - name: Setup Yocto Poky Environment
         shell: bash
         run: |
           mkdir -p yocto-setup && cd yocto-setup
-          git clone -b scarthgap https://git.yoctoproject.org/git/poky
+          # Use depth=1 for faster clones in CI pipelines
+          git clone --depth=1 -b scarthgap https://git.yoctoproject.org/git/poky
 
-      # 5. Build the Minimal Image (Disabling Root and Git Safety Checks for CI Container)
+      # 5. Build the Minimal Image
       - name: Compile OS Image via BitBake
         shell: bash
         run: |
-          # A. CONFIGURE GIT TO TRUST ALL WORKSPACES GLOBALLY (Bypasses dubious ownership errors)
           git config --global safe.directory "*"
           
           cd yocto-setup/poky
           source oe-init-build-env
           
-          # B. Configure proxy-safe settings inside CI local.conf
+          # Configure proxy-safe settings inside CI local.conf
           echo 'FETCHCMD:wget = "/usr/bin/env wget -t 2 -T 100 --no-check-certificate"' >> conf/local.conf
           echo 'PREMIRRORS:prepend = " git://.*/.* http://downloads.yoctoproject.org/mirror/sources/ "' >> conf/local.conf
           
-          # C. BYPASS ROOT USER SANITY CHECK (Required for automated Docker builds)
+          # Bypass root user sanity check
           echo 'INHERIT:remove = "sanity"' >> conf/local.conf
           
-          # Set correct system locale environment variables for the shell session
+          # Sstate optimizations to prevent cache inflation
+          echo 'SSTATE_PRUNE_OBSOLETE = "1"' >> conf/local.conf
+          
+          # Set correct system locale environment variables
           export LANG=en_US.UTF-8
           export LC_ALL=en_US.UTF-8
-          
-          # Set safe flag
           export FORCE_UNSAFE_TO_ROOT=1
           
           # Compile
           bitbake core-image-minimal
 
-      # 6. Archive and Save the Final Output Images
+      # 6. Resolve file permissions between Container and Runner Host
+      - name: Fix Workspace Ownership for Host Runner
+        if: always()
+        run: |
+          chown -R $(stat -c "%u:%g" $GITHUB_WORKSPACE) $GITHUB_WORKSPACE
+
+      # 7. Archive and Save the Final Output Images
       - name: Upload Bootable Image Artifacts
         uses: actions/upload-artifact@v4
         with:
