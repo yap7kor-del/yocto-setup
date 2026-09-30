@@ -12,26 +12,25 @@ jobs:
   build-yocto:
     runs-on: ubuntu-latest
     
-    # Run the entire job inside our custom-defined Yocto container
+    # Run the build inside a clean Ubuntu container
     container:
-      image: ubuntu:24.04 # You can also publish your Dockerfile to GitHub Packages (GHCR)
-      options: --user root # Elevate temporarily to manage directory permissions
+      image: ubuntu:24.04
 
     steps:
-      # 1. Install prerequisites inside the container (lsync removed, lz4 added)
+      # 1. Install all required host packages inside the container
       - name: Install Host dependencies
         run: |
           apt-get update && apt-get install -y \
             gawk wget git diffstat unzip texinfo gcc build-essential \
             chrpath socat cpio python3 python3-pip xz-utils debianutils \
             iputils-ping python3-git python3-jinja2 zstd liblz4-tool \
-            file locales ca-certificates lz4 rsync
+            file locales ca-certificates lz4 rsync rsync
 
-      # 2. Checkout your custom repository layers
+      # 2. Checkout your code
       - name: Checkout Code Repository
         uses: actions/checkout@v4
 
-      # 3. Cache Management (Crucial: Saves hours of download and compile time)
+      # 3. Cache Management (Speeds up subsequent runs)
       - name: Restore/Save Yocto Downloads & SState Cache
         uses: actions/cache@v4
         with:
@@ -42,30 +41,27 @@ jobs:
           restore-keys: |
             yocto-cache-${{ runner.os }}-
 
-      # 4. Clone Poky and Initialize the Environment
+      # 4. Clone Poky and configure
       - name: Setup Yocto Poky Environment
         run: |
           mkdir -p yocto-setup && cd yocto-setup
           git clone -b scarthgap https://git.yoctoproject.org/git/poky
-          
-          # Adjust folder ownership so the non-root Yocto user can write to them
-          chown -R 1001:1001 /__w/ # GitHub Actions default non-root user GUID
 
-      # 5. Build the Minimal Image as Non-Root User
+      # 5. Build the Minimal Image (Using FORCE_UNSAFE_TO_ROOT to build safely as Root)
       - name: Compile OS Image via BitBake
         run: |
-          # Switch to the non-root 'yocto' user context
-          su - yocto -c "
-            cd /github/workspace/yocto-setup/poky
-            source oe-init-build-env
-            
-            # Configure proxy-safe settings inside CI local.conf
-            echo 'FETCHCMD:wget = \"/usr/bin/env wget -t 2 -T 100 --no-check-certificate\"' >> conf/local.conf
-            echo 'PREMIRRORS:prepend = \" git://.*/.* http://downloads.yoctoproject.org/mirror/sources/ \"' >> conf/local.conf
-            
-            # Compile
-            bitbake core-image-minimal
-          "
+          cd yocto-setup/poky
+          source oe-init-build-env
+          
+          # Configure proxy-safe settings inside CI local.conf
+          echo 'FETCHCMD:wget = "/usr/bin/env wget -t 2 -T 100 --no-check-certificate"' >> conf/local.conf
+          echo 'PREMIRRORS:prepend = " git://.*/.* http://downloads.yoctoproject.org/mirror/sources/ "' >> conf/local.conf
+          
+          # Allow BitBake to build as root in the safe CI container environment
+          export FORCE_UNSAFE_TO_ROOT=1
+          
+          # Compile
+          bitbake core-image-minimal
 
       # 6. Archive and Save the Final Output Images
       - name: Upload Bootable Image Artifacts
