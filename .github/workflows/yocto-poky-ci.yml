@@ -18,10 +18,14 @@ jobs:
       options: --user root # Elevate temporarily to manage directory permissions
 
     steps:
-      # 1. Install prerequisites inside the container
+      # 1. Install prerequisites inside the container (lsync removed, lz4 added)
       - name: Install Host dependencies
         run: |
-          apt-get update && apt-get install -y gawk wget git diffstat unzip texinfo gcc build-essential chrpath socat cpio python3 python3-pip xz-utils debianutils iputils-ping python3-git python3-jinja2 zstd liblz4-tool file locales ca-certificates lsync lz4 rsync
+          apt-get update && apt-get install -y \
+            gawk wget git diffstat unzip texinfo gcc build-essential \
+            chrpath socat cpio python3 python3-pip xz-utils debianutils \
+            iputils-ping python3-git python3-jinja2 zstd liblz4-tool \
+            file locales ca-certificates lz4 rsync
 
       # 2. Checkout your custom repository layers
       - name: Checkout Code Repository
