@@ -51,43 +51,44 @@ jobs:
           restore-keys: |
             yocto-sstate-${{ runner.os }}-
 
-      # 4. Clone Poky (Only if it was not already restored from Cache)
+      # 4. Clone Poky (Robust path fallback)
       - name: Setup Yocto Poky Environment
         shell: bash
         run: |
-          mkdir -p yocto-setup && cd yocto-setup
-          if [ ! -d "poky" ]; then
-            echo "Poky directory not found in cache. Cloning..."
+          if [ ! -d "yocto-setup/poky" ]; then
+            echo "Poky directory not found. Creating..."
+            mkdir -p yocto-setup
+            cd yocto-setup
             git clone --depth=1 -b scarthgap https://git.yoctoproject.org/git/poky
           else
-            echo "Poky directory restored from cache. Skipping clone."
+            echo "Poky directory already exists in cache. Skipping clone."
           fi
 
-      # 5. Build the Minimal Image
+      # 5. Build the Minimal Image (Robust, relative directory tracking)
       - name: Compile OS Image via BitBake
         shell: bash
         run: |
           # 1. Configure git safety
           git config --global safe.directory "*"
           
-          # 2. Enter Poky directory and initialize the Yocto environment
-          cd $GITHUB_WORKSPACE/yocto-setup/poky
+          # 2. Enter the Poky folder relatively from the workspace root
+          cd yocto-setup/poky
           
-          # CRITICAL: Sourced with direct relative path so Bash finds it instantly
-          source ./oe-init-build-env $GITHUB_WORKSPACE/yocto-setup/poky/build
+          # 3. Source the build script directly using '.' 
+          . ./oe-init-build-env build
           
-          # 3. Configure local.conf options directly inside the active build folder
+          # 4. Configure local.conf options directly inside the active build folder
           echo 'FETCHCMD:wget = "/usr/bin/env wget -t 2 -T 100 --no-check-certificate"' >> conf/local.conf
           echo 'PREMIRRORS:prepend = " git://.*/.* http://downloads.yoctoproject.org/mirror/sources/ "' >> conf/local.conf
           echo 'INHERIT:remove = "sanity"' >> conf/local.conf
           echo 'IMAGE_FSTYPES += "wic"' >> conf/local.conf
           
-          # 4. Set environment exports for execution
+          # 5. Set environment exports for execution
           export LANG=en_US.UTF-8
           export LC_ALL=en_US.UTF-8
           export FORCE_UNSAFE_TO_ROOT=1
           
-          # 5. Compile the target
+          # 6. Compile the target
           bitbake core-image-minimal
 
       # 6. Resolve file permissions between Container and Runner Host
