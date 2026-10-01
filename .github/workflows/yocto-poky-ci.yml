@@ -63,29 +63,31 @@ jobs:
             echo "Poky directory restored from cache. Skipping clone."
           fi
 
-      # 5. Build the Minimal Image (Corrected execution sequence)
+      # 5. Build the Minimal Image
       - name: Compile OS Image via BitBake
         shell: bash
         run: |
-          # Configure git safety
+          # 1. Configure git safety
           git config --global safe.directory "*"
           
-          # Initialize environment and run compilation sequentially on a single line
-          cd $GITHUB_WORKSPACE/yocto-setup/poky && \
-          source oe-init-build-env $GITHUB_WORKSPACE/yocto-setup/poky/build && \
+          # 2. Enter Poky directory and initialize the Yocto environment
+          cd $GITHUB_WORKSPACE/yocto-setup/poky
           
-          # Configure proxy-safe settings inside CI local.conf
-          echo 'FETCHCMD:wget = "/usr/bin/env wget -t 2 -T 100 --no-check-certificate"' >> conf/local.conf && \
-          echo 'PREMIRRORS:prepend = " git://.*/.* http://downloads.yoctoproject.org/mirror/sources/ "' >> conf/local.conf && \
-          echo 'INHERIT:remove = "sanity"' >> conf/local.conf && \
-          echo 'IMAGE_FSTYPES += "wic"' >> conf/local.conf && \
+          # CRITICAL: Sourced with direct relative path so Bash finds it instantly
+          source ./oe-init-build-env $GITHUB_WORKSPACE/yocto-setup/poky/build
           
-          # Set correct system locale environment variables
-          export LANG=en_US.UTF-8 && \
-          export LC_ALL=en_US.UTF-8 && \
-          export FORCE_UNSAFE_TO_ROOT=1 && \
+          # 3. Configure local.conf options directly inside the active build folder
+          echo 'FETCHCMD:wget = "/usr/bin/env wget -t 2 -T 100 --no-check-certificate"' >> conf/local.conf
+          echo 'PREMIRRORS:prepend = " git://.*/.* http://downloads.yoctoproject.org/mirror/sources/ "' >> conf/local.conf
+          echo 'INHERIT:remove = "sanity"' >> conf/local.conf
+          echo 'IMAGE_FSTYPES += "wic"' >> conf/local.conf
           
-          # Compile target
+          # 4. Set environment exports for execution
+          export LANG=en_US.UTF-8
+          export LC_ALL=en_US.UTF-8
+          export FORCE_UNSAFE_TO_ROOT=1
+          
+          # 5. Compile the target
           bitbake core-image-minimal
 
       # 6. Resolve file permissions between Container and Runner Host
