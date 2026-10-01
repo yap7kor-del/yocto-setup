@@ -63,32 +63,29 @@ jobs:
             echo "Poky directory restored from cache. Skipping clone."
           fi
 
-      # 5. Build the Minimal Image (Forces .wic generation alongside other outputs)
+      # 5. Build the Minimal Image (Corrected execution sequence)
       - name: Compile OS Image via BitBake
         shell: bash
         run: |
           # Configure git safety
           git config --global safe.directory "*"
           
-          cd yocto-setup/poky
-          source oe-init-build-env
-          
-          # CRITICAL: Force generation of .wic files in local.conf
-          echo 'IMAGE_FSTYPES += "wic"' >> conf/local.conf
+          # Initialize environment and run compilation sequentially on a single line
+          cd $GITHUB_WORKSPACE/yocto-setup/poky && \
+          source oe-init-build-env $GITHUB_WORKSPACE/yocto-setup/poky/build && \
           
           # Configure proxy-safe settings inside CI local.conf
-          echo 'FETCHCMD:wget = "/usr/bin/env wget -t 2 -T 100 --no-check-certificate"' >> conf/local.conf
-          echo 'PREMIRRORS:prepend = " git://.*/.* http://downloads.yoctoproject.org/mirror/sources/ "' >> conf/local.conf
-          
-          # Bypass root user sanity check
-          echo 'INHERIT:remove = "sanity"' >> conf/local.conf
+          echo 'FETCHCMD:wget = "/usr/bin/env wget -t 2 -T 100 --no-check-certificate"' >> conf/local.conf && \
+          echo 'PREMIRRORS:prepend = " git://.*/.* http://downloads.yoctoproject.org/mirror/sources/ "' >> conf/local.conf && \
+          echo 'INHERIT:remove = "sanity"' >> conf/local.conf && \
+          echo 'IMAGE_FSTYPES += "wic"' >> conf/local.conf && \
           
           # Set correct system locale environment variables
-          export LANG=en_US.UTF-8
-          export LC_ALL=en_US.UTF-8
-          export FORCE_UNSAFE_TO_ROOT=1
+          export LANG=en_US.UTF-8 && \
+          export LC_ALL=en_US.UTF-8 && \
+          export FORCE_UNSAFE_TO_ROOT=1 && \
           
-          # Compile
+          # Compile target
           bitbake core-image-minimal
 
       # 6. Resolve file permissions between Container and Runner Host
