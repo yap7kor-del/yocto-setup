@@ -34,23 +34,21 @@ jobs:
       - name: Checkout Code Repository
         uses: actions/checkout@v4
 
-      # 3. Cache Management (Speeds up subsequent runs)
-      - name: Cache Yocto Downloads
+      # 3. Cache Management (Separated into two caches to stay under the 10GB limit)
+      - name: Restore/Save Yocto Downloads Cache
         uses: actions/cache@v4
         with:
           path: yocto-setup/poky/build/downloads
-          key: yocto-downloads-${{ runner.os }}-${{ hashFiles('**/conf/local.conf') }}
+          key: yocto-downloads-${{ runner.os }}-${{ github.sha }}
           restore-keys: |
             yocto-downloads-${{ runner.os }}-
 
-      - name: Cache Yocto SState
+      - name: Restore/Save Yocto SState Cache
         uses: actions/cache@v4
         with:
           path: yocto-setup/poky/build/sstate-cache
-          key: yocto-sstate-${{ runner.os }}-${{ github.ref_name }}-${{ github.sha }}
+          key: yocto-sstate-${{ runner.os }}-${{ github.sha }}
           restore-keys: |
-            yocto-sstate-${{ runner.os }}-${{ github.ref_name }}-
-            yocto-sstate-${{ runner.os }}-main-
             yocto-sstate-${{ runner.os }}-
 
       # 4. Clone Poky and configure
@@ -58,17 +56,21 @@ jobs:
         shell: bash
         run: |
           mkdir -p yocto-setup && cd yocto-setup
-          # Use depth=1 for faster clones in CI pipelines
+          # Use depth=1 for faster execution
           git clone --depth=1 -b scarthgap https://git.yoctoproject.org/git/poky
 
-      # 5. Build the Minimal Image
+      # 5. Build the Minimal Image (Forces .wic generation alongside other outputs)
       - name: Compile OS Image via BitBake
         shell: bash
         run: |
+          # Configure git safety
           git config --global safe.directory "*"
           
           cd yocto-setup/poky
           source oe-init-build-env
+          
+          # CRITICAL: Force generation of .wic files in local.conf
+          echo 'IMAGE_FSTYPES += "wic"' >> conf/local.conf
           
           # Configure proxy-safe settings inside CI local.conf
           echo 'FETCHCMD:wget = "/usr/bin/env wget -t 2 -T 100 --no-check-certificate"' >> conf/local.conf
@@ -76,9 +78,6 @@ jobs:
           
           # Bypass root user sanity check
           echo 'INHERIT:remove = "sanity"' >> conf/local.conf
-          
-          # Sstate optimizations to prevent cache inflation
-          echo 'SSTATE_PRUNE_OBSOLETE = "1"' >> conf/local.conf
           
           # Set correct system locale environment variables
           export LANG=en_US.UTF-8
@@ -94,10 +93,16 @@ jobs:
         run: |
           chown -R $(stat -c "%u:%g" $GITHUB_WORKSPACE) $GITHUB_WORKSPACE
 
-      # 7. Archive and Save the Final Output Images
+      # 7. Upload all helpful boot and flash files
       - name: Upload Bootable Image Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: yocto-bootable-sdcard-image
-          path: yocto-setup/poky/build/tmp/deploy/images/qemux86-64/*.wic*
+          # Multi-line path filter matching only the critical files from your deploy folder
+          path: |
+            yocto-setup/poky/build/tmp/deploy/images/qemux86-64/*.wic*
+            yocto-setup/poky/build/tmp/deploy/images/qemux86-64/*.ext4
+            yocto-setup/poky/build/tmp/deploy/images/qemux86-64/bzImage*
+            yocto-setup/poky/build/tmp/deploy/images/qemux86-64/*.qemuboot.conf
+            yocto-setup/poky/build/tmp/deploy/images/qemux86-64/*.manifest
           retention-days: 5
