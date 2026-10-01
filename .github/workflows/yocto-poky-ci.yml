@@ -51,20 +51,40 @@ jobs:
           restore-keys: |
             yocto-sstate-${{ runner.os }}-
 
-      # 4. Clone Poky (Robust path fallback)
-      - name: Setup Yocto Poky Environment
+      # 4. Diagnostic: Check what files exist in our directories
+      - name: Debug and Setup Yocto Poky Environment
         shell: bash
         run: |
-          if [ ! -d "yocto-setup/poky" ]; then
-            echo "Poky directory not found. Creating..."
-            mkdir -p yocto-setup
-            cd yocto-setup
-            git clone --depth=1 -b scarthgap https://git.yoctoproject.org/git/poky
+          echo "=== Checking Workspace Root ==="
+          ls -la
+          
+          echo "=== Checking inside yocto-setup ==="
+          if [ -d "yocto-setup" ]; then
+            ls -la yocto-setup
           else
-            echo "Poky directory already exists in cache. Skipping clone."
+            echo "yocto-setup folder does not exist yet."
+          fi
+          
+          echo "=== Checking inside yocto-setup/poky ==="
+          if [ -d "yocto-setup/poky" ]; then
+            ls -la yocto-setup/poky
+          else
+            echo "yocto-setup/poky folder does not exist yet."
           fi
 
-      # 5. Build the Minimal Image (Robust, relative directory tracking)
+          # Safe Clone Check
+          if [ ! -f "yocto-setup/poky/oe-init-build-env" ]; then
+            echo "Poky files not found. Preparing directory and cloning..."
+            mkdir -p yocto-setup
+            cd yocto-setup
+            rm -rf poky
+            git clone --depth=1 -b scarthgap https://git.yoctoproject.org/git/poky
+          else
+            echo "Poky repository and environment scripts found in cache. Skipping clone."
+          fi
+
+
+      # 5. Build the Minimal Image
       - name: Compile OS Image via BitBake
         shell: bash
         run: |
@@ -74,7 +94,7 @@ jobs:
           # 2. Enter the Poky folder relatively from the workspace root
           cd yocto-setup/poky
           
-          # 3. Source the build script directly using '.' 
+          # 3. Source the build script directly using '.'
           . ./oe-init-build-env build
           
           # 4. Configure local.conf options directly inside the active build folder
@@ -102,7 +122,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: yocto-bootable-sdcard-image
-          # Multi-line path filter matching only the critical files from your deploy folder
           path: |
             yocto-setup/poky/build/tmp/deploy/images/qemux86-64/*.wic*
             yocto-setup/poky/build/tmp/deploy/images/qemux86-64/*.ext4
