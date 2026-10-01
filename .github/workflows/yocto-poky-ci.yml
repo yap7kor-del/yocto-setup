@@ -51,13 +51,17 @@ jobs:
           restore-keys: |
             yocto-sstate-${{ runner.os }}-
 
-      # 4. Clone Poky and configure
+      # 4. Clone Poky (Only if it was not already restored from Cache)
       - name: Setup Yocto Poky Environment
         shell: bash
         run: |
           mkdir -p yocto-setup && cd yocto-setup
-          # Use depth=1 for faster execution
-          git clone --depth=1 -b scarthgap https://git.yoctoproject.org/git/poky
+          if [ ! -d "poky" ]; then
+            echo "Poky directory not found in cache. Cloning..."
+            git clone --depth=1 -b scarthgap https://git.yoctoproject.org/git/poky
+          else
+            echo "Poky directory restored from cache. Skipping clone."
+          fi
 
       # 5. Build the Minimal Image (Forces .wic generation alongside other outputs)
       - name: Compile OS Image via BitBake
