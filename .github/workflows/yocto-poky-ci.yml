@@ -51,38 +51,23 @@ jobs:
           restore-keys: |
             yocto-sstate-${{ runner.os }}-
 
-      # 4. Diagnostic: Check what files exist in our directories
-      - name: Debug and Setup Yocto Poky Environment
+      # 4. Setup Yocto Poky Environment (Clears empty folders and clones cleanly)
+      - name: Setup Yocto Poky Environment
         shell: bash
         run: |
-          echo "=== Checking Workspace Root ==="
-          ls -la
-          
-          echo "=== Checking inside yocto-setup ==="
-          if [ -d "yocto-setup" ]; then
-            ls -la yocto-setup
-          else
-            echo "yocto-setup folder does not exist yet."
-          fi
-          
-          echo "=== Checking inside yocto-setup/poky ==="
-          if [ -d "yocto-setup/poky" ]; then
-            ls -la yocto-setup/poky
-          else
-            echo "yocto-setup/poky folder does not exist yet."
-          fi
-
-          # Safe Clone Check
+          # Check if the initialization script actually exists on the disk
           if [ ! -f "yocto-setup/poky/oe-init-build-env" ]; then
-            echo "Poky files not found. Preparing directory and cloning..."
+            echo "Critical Yocto files not found. Wiping hollow directories and cloning fresh..."
+            
+            # Wipes out any empty directory structures created by the cache restoration
+            rm -rf yocto-setup/poky
             mkdir -p yocto-setup
+            
             cd yocto-setup
-            rm -rf poky
             git clone --depth=1 -b scarthgap https://git.yoctoproject.org/git/poky
           else
-            echo "Poky repository and environment scripts found in cache. Skipping clone."
+            echo "Complete Poky repository found in cache. Skipping clone."
           fi
-
 
       # 5. Build the Minimal Image
       - name: Compile OS Image via BitBake
@@ -110,6 +95,7 @@ jobs:
           
           # 6. Compile the target
           bitbake core-image-minimal
+
 
       # 6. Resolve file permissions between Container and Runner Host
       - name: Fix Workspace Ownership for Host Runner
