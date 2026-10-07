@@ -70,17 +70,13 @@ jobs:
 
           . ./oe-init-build-env build
 
-          cat >> conf/local.conf <<EOF
-            DL_DIR = "${GITHUB_WORKSPACE}/yocto-cache/downloads"
-            SSTATE_DIR = "${GITHUB_WORKSPACE}/yocto-cache/sstate-cache"
+          echo "DL_DIR = \"${GITHUB_WORKSPACE}/yocto-cache/downloads\"" >> conf/local.conf
+          echo "SSTATE_DIR = \"${GITHUB_WORKSPACE}/yocto-cache/sstate-cache\"" >> conf/local.conf
+          echo "BB_NUMBER_THREADS = \"2\"" >> conf/local.conf
+          echo "PARALLEL_MAKE = \"-j 2\"" >> conf/local.conf
+          echo "IMAGE_FSTYPES += \"wic\"" >> conf/local.conf
 
-            BB_NUMBER_THREADS = "2"
-            PARALLEL_MAKE = "-j 2"
-
-            IMAGE_FSTYPES += "wic"
-            EOF
-
-          bitbake core-image-minimal
+          bitbake core-image-minimal      
 
       - name: Upload Artifacts
         if: success()
