@@ -11,98 +11,149 @@ on:
 jobs:
   build-yocto:
     runs-on: ubuntu-latest
-    
-    # Run the build inside a clean Ubuntu container
+
     container:
       image: ubuntu:24.04
 
     steps:
-      # 1. Install all required host packages & generate locales inside the container
-      - name: Install Host dependencies
+      # Install host dependencies
+      - name: Install Host Dependencies
         run: |
-          apt-get update && apt-get install -y \
+          apt-get update
+
+          DEBIAN_FRONTEND=noninteractive apt-get install -y \
             gawk wget git diffstat unzip texinfo gcc build-essential \
-            chrpath socat cpio python3 python3-pip xz-utils debianutils \
-            iputils-ping python3-git python3-jinja2 zstd liblz4-tool \
-            file locales ca-certificates lz4 rsync
-            
-          # Generate and set the required en_US.UTF-8 locales
+            chrpath socat cpio python3 python3-pip python3-git \
+            python3-jinja2 xz-utils zstd lz4 liblz4-tool \
+            debianutils iputils-ping file rsync locales \
+            ca-certificates tar gzip sed perl patch \
+            bzip2 make findutils
+
           locale-gen en_US.UTF-8
           update-locale LANG=en_US.UTF-8
 
-      # 2. Checkout your code
+      # Checkout repository
       - name: Checkout Code Repository
         uses: actions/checkout@v4
 
-      # 3. Clone first
+      # Clone poky
       - name: Clone Poky
         run: |
           mkdir -p yocto-setup
-          if [ ! -f "yocto-setup/poky/oe-init-build-env" ]; then
-            git clone --depth=1 -b scarthgap https://git.yoctoproject.org/git/poky yocto-setup/poky
+
+          if [ ! -d "yocto-setup/poky" ]; then
+            git clone \
+              --depth=1 \
+              -b scarthgap \
+              https://git.yoctoproject.org/git/poky \
+              yocto-setup/poky
           fi
 
-      # 4. Restore downloads cache
+      # Downloads cache
       - name: Restore Downloads Cache
         uses: actions/cache@v4
         with:
           path: yocto-setup/poky/build/downloads
-          key: yocto-downloads-${{ runner.os }}-${{ github.sha }}
+          key: yocto-downloads-${{ runner.os }}-scarthgap
           restore-keys: |
             yocto-downloads-${{ runner.os }}-
 
-      # Restore sstate cache
+      # SState cache
       - name: Restore SState Cache
         uses: actions/cache@v4
         with:
           path: yocto-setup/poky/build/sstate-cache
-          key: yocto-sstate-${{ runner.os }}-${{ github.sha }}
+          key: yocto-sstate-${{ runner.os }}-scarthgap
           restore-keys: |
             yocto-sstate-${{ runner.os }}-
 
-      # 5. Build the Minimal Image
-      - name: Compile OS Image via BitBake
+      # Display runner resources
+      - name: Show Resources
+        run: |
+          echo "Disk:"
+          df -h
+
+          echo "Memory:"
+          free -h || true
+
+      # Build image
+      - name: Build Yocto Image
         shell: bash
         run: |
-          # 1. Configure git safety
-          git config --global safe.directory "*"
-          
-          # 2. Enter the Poky folder relatively from the workspace root
-          cd yocto-setup/poky
-          
-          # 3. Source the build script directly using '.'
-          . ./oe-init-build-env build
-          
-          # 4. Configure local.conf options directly inside the active build folder
-          echo 'FETCHCMD:wget = "/usr/bin/env wget -t 2 -T 100 --no-check-certificate"' >> conf/local.conf
-          echo 'PREMIRRORS:prepend = " git://.*/.* http://downloads.yoctoproject.org/mirror/sources/ "' >> conf/local.conf
-          echo 'INHERIT:remove = "sanity"' >> conf/local.conf
-          echo 'IMAGE_FSTYPES += "wic"' >> conf/local.conf
-          
-          # 5. Set environment exports for execution
           export LANG=en_US.UTF-8
           export LC_ALL=en_US.UTF-8
-          export FORCE_UNSAFE_TO_ROOT=1
-          
-          # 6. Compile the target
+
+          # Required because GitHub container executes as root
+          export FORCE_UNSAFE_CONFIGURE=1
+
+          git config --global safe.directory "*"
+
+          cd yocto-setup/poky
+
+          . ./oe-init-build-env build
+
+          {
+            echo 'FETCHCMD:wget = "/usr/bin/env wget -t 2 -T 100 --no-check-certificate"'
+            echo 'PREMIRRORS:prepend = " git://.*/.* http://downloads.yoctoproject.org/mirror/sources/ "'
+            echo 'IMAGE_FSTYPES += "wic"'
+            echo 'BB_NUMBER_THREADS = "2"'
+            echo 'PARALLEL_MAKE = "-j 2"'
+          } >> conf/local.conf
+
           bitbake core-image-minimal
 
-
-      # 6. Resolve file permissions between Container and Runner Host
-      - name: Fix Workspace Ownership for Host Runner
-        if: always()
+      # Print useful debug logs if build fails
+      - name: Dump Failure Logs
+        if: failure()
+        shell: bash
         run: |
-          chown -R $(stat -c "%u:%g" $GITHUB_WORKSPACE) $GITHUB_WORKSPACE
+          echo "=== Disk Usage ==="
+          df -h
 
-      # 7. Upload all helpful boot and flash files
+          echo "=== Memory ==="
+          free -h || true
+
+          echo "=== Coreutils Configure Logs ==="
+          find yocto-setup/poky/build/tmp/work \
+            -path '*coreutils-native*' \
+            -name 'log.do_configure*' \
+            -exec tail -200 {} \; || true
+
+          echo "=== Coreutils config.log ==="
+          find yocto-setup/poky/build/tmp/work \
+            -path '*coreutils-native*' \
+            -name 'config.log' \
+            -exec tail -200 {} \; || true
+
+      # Upload failure artifacts
+      - name: Upload Failure Logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: yocto-failure-logs
+          if-no-files-found: warn
+          path: |
+            yocto-setup/poky/build/tmp/work/**/coreutils-native/**/config.log
+            yocto-setup/poky/build/tmp/work/**/coreutils-native/**/log.do_configure*
+
+      # Upload image artifacts
       - name: Upload Bootable Image Artifacts
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: yocto-bootable-sdcard-image
+          retention-days: 5
           path: |
             yocto-setup/poky/build/tmp/deploy/images/qemux86-64/*.wic*
             yocto-setup/poky/build/tmp/deploy/images/qemux86-64/*.ext4
             yocto-setup/poky/build/tmp/deploy/images/qemux86-64/bzImage*
             yocto-setup/poky/build/tmp/deploy/images/qemux86-64/*.qemuboot.conf
             yocto-setup/poky/build/tmp/deploy/images/qemux86-64/*.manifest
-          retention-days: 5
+
+      # Avoid failing due to disappearing bitbake.sock
+      - name: Fix Workspace Ownership
+        if: always()
+        run: |
+          chown -R "$(stat -c '%u:%g' $GITHUB_WORKSPACE)" \
+            "$GITHUB_WORKSPACE" || true
+``
