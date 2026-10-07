@@ -1,4 +1,4 @@
-name: Yocto CI
+name: Yocto Build
 
 on:
   push:
@@ -17,28 +17,44 @@ jobs:
       - name: Install Dependencies
         run: |
           apt-get update
-          apt-get install -y \
+
+          DEBIAN_FRONTEND=noninteractive apt-get install -y \
             gawk wget git diffstat unzip texinfo gcc build-essential \
-            chrpath socat cpio python3 python3-pip xz-utils \
-            debianutils iputils-ping python3-git python3-jinja2 \
-            zstd liblz4-tool file locales lz4 rsync
+            chrpath socat cpio python3 python3-pip python3-git \
+            python3-jinja2 xz-utils zstd lz4 liblz4-tool \
+            debianutils iputils-ping file rsync locales \
+            ca-certificates sudo
 
           locale-gen en_US.UTF-8
 
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      - name: Create Builder User
+        run: |
+          useradd -m -s /bin/bash builder
+
+          mkdir -p /home/builder
+
+          chown -R builder:builder \
+            "$GITHUB_WORKSPACE" \
+            /home/builder
+
       - name: Clone Poky
         run: |
           mkdir -p yocto-setup
 
-          git clone \
-            --depth=1 \
-            --branch scarthgap \
-            https://git.yoctoproject.org/git/poky \
-            yocto-setup/poky
+          if [ ! -d yocto-setup/poky ]; then
+            git clone \
+              --depth=1 \
+              -b scarthgap \
+              https://git.yoctoproject.org/git/poky \
+              yocto-setup/poky
+          fi
 
-      - name: Restore Downloads Cache
+          chown -R builder:builder yocto-setup
+
+      - name: Cache Downloads
         uses: actions/cache@v4
         with:
           path: yocto-cache/downloads
@@ -46,7 +62,7 @@ jobs:
           restore-keys: |
             yocto-downloads-${{ runner.os }}-
 
-      - name: Restore SState Cache
+      - name: Cache SState
         uses: actions/cache@v4
         with:
           path: yocto-cache/sstate-cache
@@ -54,23 +70,35 @@ jobs:
           restore-keys: |
             yocto-sstate-${{ runner.os }}-
 
-      - name: Build Image
-        shell: bash
+      - name: Build Yocto Image
         run: |
-          export LANG=en_US.UTF-8
-          export LC_ALL=en_US.UTF-8
+          mkdir -p yocto-cache/downloads
+          mkdir -p yocto-cache/sstate-cache
 
-          cd yocto-setup/poky
+          chown -R builder:builder yocto-cache
 
-          . ./oe-init-build-env build
+          su builder -c "
+            export LANG=en_US.UTF-8
+            export LC_ALL=en_US.UTF-8
 
-          cat >> conf/local.conf << EOF
-          DL_DIR = "${TOPDIR}/../../../yocto-cache/downloads"
-          SSTATE_DIR = "${TOPDIR}/../../../yocto-cache/sstate-cache"
-          IMAGE_FSTYPES += "wic"
-          EOF
+            cd $GITHUB_WORKSPACE/yocto-setup/poky
 
-          bitbake core-image-minimal
+            . ./oe-init-build-env build
+
+            cat <<EOF >> conf/local.conf
+
+            DL_DIR = \"${GITHUB_WORKSPACE}/yocto-cache/downloads\"
+            SSTATE_DIR = \"${GITHUB_WORKSPACE}/yocto-cache/sstate-cache\"
+
+            BB_NUMBER_THREADS = \"2\"
+            PARALLEL_MAKE = \"-j 2\"
+
+            IMAGE_FSTYPES += \"wic\"
+
+            EOF
+
+            bitbake core-image-minimal
+          "
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
@@ -79,5 +107,4 @@ jobs:
           path: |
             yocto-setup/poky/build/tmp/deploy/images/qemux86-64/*.wic*
             yocto-setup/poky/build/tmp/deploy/images/qemux86-64/*.ext4
-            yocto-setup/poky/build/tmp/deploy/images/qemux86-64/*.manifest
             yocto-setup/poky/build/tmp/deploy/images/qemux86-64/bzImage*
