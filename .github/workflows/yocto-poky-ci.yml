@@ -2,9 +2,11 @@ name: Yocto Build
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
   pull_request:
-    branches: [main]
+    branches:
+      - main
 
 jobs:
   build:
@@ -15,6 +17,7 @@ jobs:
 
     steps:
       - name: Install Dependencies
+        shell: bash
         run: |
           apt-get update
 
@@ -31,16 +34,14 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Create Builder User
+        shell: bash
         run: |
           useradd -m -s /bin/bash builder
 
-          mkdir -p /home/builder
-
-          chown -R builder:builder \
-            "$GITHUB_WORKSPACE" \
-            /home/builder
+          chown -R builder:builder "$GITHUB_WORKSPACE"
 
       - name: Clone Poky
+        shell: bash
         run: |
           mkdir -p yocto-setup
 
@@ -70,13 +71,33 @@ jobs:
           restore-keys: |
             yocto-sstate-${{ runner.os }}-
 
-      - name: Build Yocto Image
+      - name: Prepare Build Configuration
+        shell: bash
         run: |
           mkdir -p yocto-cache/downloads
           mkdir -p yocto-cache/sstate-cache
 
           chown -R builder:builder yocto-cache
 
+          cd yocto-setup/poky
+
+          . ./oe-init-build-env build
+
+          cat >> conf/local.conf <<EOF
+            DL_DIR = "${GITHUB_WORKSPACE}/yocto-cache/downloads"
+            SSTATE_DIR = "${GITHUB_WORKSPACE}/yocto-cache/sstate-cache"
+
+            BB_NUMBER_THREADS = "2"
+            PARALLEL_MAKE = "-j 2"
+
+            IMAGE_FSTYPES += "wic"
+            EOF
+
+          chown -R builder:builder build
+
+      - name: Build Image
+        shell: bash
+        run: |
           su builder -c "
             export LANG=en_US.UTF-8
             export LC_ALL=en_US.UTF-8
@@ -85,26 +106,19 @@ jobs:
 
             . ./oe-init-build-env build
 
-            cat <<EOF >> conf/local.conf
-
-            DL_DIR = \"${GITHUB_WORKSPACE}/yocto-cache/downloads\"
-            SSTATE_DIR = \"${GITHUB_WORKSPACE}/yocto-cache/sstate-cache\"
-
-            BB_NUMBER_THREADS = \"2\"
-            PARALLEL_MAKE = \"-j 2\"
-
-            IMAGE_FSTYPES += \"wic\"
-
-            EOF
-
+            whoami
             bitbake core-image-minimal
           "
 
       - name: Upload Artifacts
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: yocto-image
+          retention-days: 5
           path: |
             yocto-setup/poky/build/tmp/deploy/images/qemux86-64/*.wic*
             yocto-setup/poky/build/tmp/deploy/images/qemux86-64/*.ext4
             yocto-setup/poky/build/tmp/deploy/images/qemux86-64/bzImage*
+            yocto-setup/poky/build/tmp/deploy/images/qemux86-64/*.manifest
+            yocto-setup/poky/build/tmp/deploy/images/qemux86-64/*.qemuboot.conf
