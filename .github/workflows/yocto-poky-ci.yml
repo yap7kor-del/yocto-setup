@@ -34,8 +34,16 @@ jobs:
       - name: Checkout Code Repository
         uses: actions/checkout@v4
 
-      # 3. Cache Management (Separated into two caches to stay under the 10GB limit)
-      - name: Restore/Save Yocto Downloads Cache
+      # 3. Clone first
+      - name: Clone Poky
+        run: |
+          mkdir -p yocto-setup
+          if [ ! -f "yocto-setup/poky/oe-init-build-env" ]; then
+            git clone --depth=1 -b scarthgap https://git.yoctoproject.org/git/poky yocto-setup/poky
+          fi
+
+      # 4. Restore downloads cache
+      - name: Restore Downloads Cache
         uses: actions/cache@v4
         with:
           path: yocto-setup/poky/build/downloads
@@ -43,31 +51,14 @@ jobs:
           restore-keys: |
             yocto-downloads-${{ runner.os }}-
 
-      - name: Restore/Save Yocto SState Cache
+      # Restore sstate cache
+      - name: Restore SState Cache
         uses: actions/cache@v4
         with:
           path: yocto-setup/poky/build/sstate-cache
           key: yocto-sstate-${{ runner.os }}-${{ github.sha }}
           restore-keys: |
             yocto-sstate-${{ runner.os }}-
-
-      # 4. Setup Yocto Poky Environment (Clears empty folders and clones cleanly)
-      - name: Setup Yocto Poky Environment
-        shell: bash
-        run: |
-          # Check if the initialization script actually exists on the disk
-          if [ ! -f "yocto-setup/poky/oe-init-build-env" ]; then
-            echo "Critical Yocto files not found. Wiping hollow directories and cloning fresh..."
-            
-            # Wipes out any empty directory structures created by the cache restoration
-            rm -rf yocto-setup/poky
-            mkdir -p yocto-setup
-            
-            cd yocto-setup
-            git clone --depth=1 -b scarthgap https://git.yoctoproject.org/git/poky
-          else
-            echo "Complete Poky repository found in cache. Skipping clone."
-          fi
 
       # 5. Build the Minimal Image
       - name: Compile OS Image via BitBake
