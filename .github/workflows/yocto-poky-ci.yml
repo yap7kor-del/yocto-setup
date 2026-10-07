@@ -1,10 +1,10 @@
-name: Yocto Build
+name: Yocto CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   build:
@@ -14,16 +14,14 @@ jobs:
       image: ubuntu:24.04
 
     steps:
-
       - name: Install Dependencies
         run: |
           apt-get update
-          DEBIAN_FRONTEND=noninteractive apt-get install -y \
+          apt-get install -y \
             gawk wget git diffstat unzip texinfo gcc build-essential \
-            chrpath socat cpio python3 python3-pip python3-git \
-            python3-jinja2 xz-utils zstd lz4 liblz4-tool \
-            debianutils iputils-ping file rsync locales \
-            ca-certificates
+            chrpath socat cpio python3 python3-pip xz-utils \
+            debianutils iputils-ping python3-git python3-jinja2 \
+            zstd liblz4-tool file locales lz4 rsync
 
           locale-gen en_US.UTF-8
 
@@ -34,26 +32,24 @@ jobs:
         run: |
           mkdir -p yocto-setup
 
-          if [ ! -d yocto-setup/poky ]; then
-            git clone \
-              --depth=1 \
-              -b scarthgap \
-              https://git.yoctoproject.org/git/poky \
-              yocto-setup/poky
-          fi
+          git clone \
+            --depth=1 \
+            --branch scarthgap \
+            https://git.yoctoproject.org/git/poky \
+            yocto-setup/poky
 
-      - name: Cache Downloads
+      - name: Restore Downloads Cache
         uses: actions/cache@v4
         with:
-          path: yocto-setup/poky/build/downloads
+          path: yocto-cache/downloads
           key: yocto-downloads-${{ runner.os }}-scarthgap
           restore-keys: |
             yocto-downloads-${{ runner.os }}-
 
-      - name: Cache SState
+      - name: Restore SState Cache
         uses: actions/cache@v4
         with:
-          path: yocto-setup/poky/build/sstate-cache
+          path: yocto-cache/sstate-cache
           key: yocto-sstate-${{ runner.os }}-scarthgap
           restore-keys: |
             yocto-sstate-${{ runner.os }}-
@@ -63,40 +59,25 @@ jobs:
         run: |
           export LANG=en_US.UTF-8
           export LC_ALL=en_US.UTF-8
-          export FORCE_UNSAFE_CONFIGURE=1
-
-          git config --global safe.directory "*"
 
           cd yocto-setup/poky
 
           . ./oe-init-build-env build
 
-          cat <<EOF >> conf/local.conf
-
-          INHERIT:remove = "sanity"
+          cat >> conf/local.conf << EOF
+          DL_DIR = "${TOPDIR}/../../../yocto-cache/downloads"
+          SSTATE_DIR = "${TOPDIR}/../../../yocto-cache/sstate-cache"
           IMAGE_FSTYPES += "wic"
-
-          BB_NUMBER_THREADS = "2"
-          PARALLEL_MAKE = "-j 2"
-
-          FETCHCMD:wget = "/usr/bin/env wget -t 2 -T 100 --no-check-certificate"
-
-          PREMIRRORS:prepend = " \
-            git://.*/.* http://downloads.yoctoproject.org/mirror/sources/ \
-          "
           EOF
 
           bitbake core-image-minimal
 
       - name: Upload Artifacts
-        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: yocto-image
-          retention-days: 5
           path: |
             yocto-setup/poky/build/tmp/deploy/images/qemux86-64/*.wic*
             yocto-setup/poky/build/tmp/deploy/images/qemux86-64/*.ext4
-            yocto-setup/poky/build/tmp/deploy/images/qemux86-64/bzImage*
             yocto-setup/poky/build/tmp/deploy/images/qemux86-64/*.manifest
-            yocto-setup/poky/build/tmp/deploy/images/qemux86-64/*.qemuboot.conf
+            yocto-setup/poky/build/tmp/deploy/images/qemux86-64/bzImage*
