@@ -2,43 +2,31 @@ name: Yocto Build
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
-    branches:
-      - main
+    branches: [main]
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-
-    container:
-      image: ubuntu:24.04
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Install Dependencies
         shell: bash
         run: |
-          apt-get update
+          sudo apt-get update
 
-          DEBIAN_FRONTEND=noninteractive apt-get install -y \
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
             gawk wget git diffstat unzip texinfo gcc build-essential \
             chrpath socat cpio python3 python3-pip python3-git \
             python3-jinja2 xz-utils zstd lz4 liblz4-tool \
             debianutils iputils-ping file rsync locales \
-            ca-certificates sudo
+            ca-certificates
 
-          locale-gen en_US.UTF-8
+          sudo locale-gen en_US.UTF-8
 
       - name: Checkout Repository
         uses: actions/checkout@v4
-
-      - name: Create Builder User
-        shell: bash
-        run: |
-          useradd -m -s /bin/bash builder
-
-          chown -R builder:builder "$GITHUB_WORKSPACE"
 
       - name: Clone Poky
         shell: bash
@@ -52,8 +40,6 @@ jobs:
               https://git.yoctoproject.org/git/poky \
               yocto-setup/poky
           fi
-
-          chown -R builder:builder yocto-setup
 
       - name: Cache Downloads
         uses: actions/cache@v4
@@ -71,13 +57,14 @@ jobs:
           restore-keys: |
             yocto-sstate-${{ runner.os }}-
 
-      - name: Prepare Build Configuration
+      - name: Build Image
         shell: bash
         run: |
+          export LANG=en_US.UTF-8
+          export LC_ALL=en_US.UTF-8
+
           mkdir -p yocto-cache/downloads
           mkdir -p yocto-cache/sstate-cache
-
-          chown -R builder:builder yocto-cache
 
           cd yocto-setup/poky
 
@@ -93,22 +80,7 @@ jobs:
             IMAGE_FSTYPES += "wic"
             EOF
 
-          chown -R builder:builder build
-
-      - name: Build Image
-        shell: bash
-        run: |
-          su builder -c "
-            export LANG=en_US.UTF-8
-            export LC_ALL=en_US.UTF-8
-
-            cd $GITHUB_WORKSPACE/yocto-setup/poky
-
-            . ./oe-init-build-env build
-
-            whoami
-            bitbake core-image-minimal
-          "
+          bitbake core-image-minimal
 
       - name: Upload Artifacts
         if: success()
